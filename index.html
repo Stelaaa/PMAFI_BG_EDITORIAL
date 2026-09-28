@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PMAFI BG Editorial</title>
+<style>
+  body { margin: 0; background: #2b2b2b; color: #eee; font-family: system-ui, sans-serif;
+         display: flex; flex-direction: column; align-items: center; min-height: 100vh;
+         overflow-x: hidden; }
+  #status { margin: 60px 16px; font-size: 18px; }
+  #wrap { width: 95vw; max-width: 1400px; margin: 20px auto 0;
+          transition: transform 0.5s ease; }   /* desliza a capa/contracapa para o centro */
+  .page { overflow: hidden; }
+  .page img { width: 100%; height: 100%; display: block; object-fit: contain;
+              user-select: none; pointer-events: none; }
+  .controls { display: flex; gap: 14px; align-items: center; margin: 16px; flex-wrap: wrap; justify-content: center; }
+  .controls[hidden] { display: none; }
+  button { padding: 8px 18px; border: 0; border-radius: 6px; background: #4a90e2; color: #fff; font-size: 16px; cursor: pointer; }
+  button:hover { background: #357abd; }
+  a { color: #9cf; }
+</style>
+</head>
+<body>
+
+<div id="status">Carregando…</div>
+<div id="wrap"><div id="book"></div></div>
+<div class="controls" id="controls" hidden>
+  <button id="prev">◀ Anterior</button>
+  <span id="info"></span>
+  <button id="next">Próxima ▶</button>
+  <a id="download" download>Baixar PDF</a>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
+<script>
+  // As páginas vêm de paginas.json, gerado pelo script gerar_paginas.py
+  (async () => {
+    const status = document.getElementById('status');
+    try {
+      const resp = await fetch('paginas.json', { cache: 'no-cache' });
+      if (!resp.ok) throw new Error('paginas.json não encontrado — rode gerar_paginas.py');
+      const dados = await resp.json();
+      const w = dados.width, h = dados.height;
+
+      document.getElementById('download').href = dados.pdf;
+      status.remove();
+
+      // Ajusta a largura para o livro aberto caber na altura da tela (sobra espaço para os botões)
+      const ajustarLargura = () => {
+        const alturaLivre = window.innerHeight - 110;
+        const larguraMax = Math.floor(alturaLivre * (2 * w) / h);
+        document.getElementById('wrap').style.width = Math.min(window.innerWidth * 0.95, larguraMax, 1400) + 'px';
+      };
+      ajustarLargura();
+      window.addEventListener('resize', ajustarLargura); // registrado antes do livro, para rodar primeiro
+
+      // Cria uma <div> com a imagem para cada página
+      const book = document.getElementById('book');
+      const total = dados.pages.length;
+      dados.pages.forEach((src, i) => {
+        const div = document.createElement('div');
+        div.className = 'page';
+        const img = document.createElement('img');
+        img.src = src;
+        img.alt = `Página ${i + 1}`;
+        img.decoding = 'async';
+        div.appendChild(img);
+        book.appendChild(div);
+      });
+
+      const flip = new St.PageFlip(book, {
+        width: w, height: h,
+        size: 'stretch',
+        minWidth: 200, minHeight: Math.round(200 * h / w),
+        maxWidth: w * 1.6, maxHeight: h * 1.6,
+        showCover: true,
+        flippingTime: 500,          // velocidade da virada em ms (padrão 1000; menor = mais rápido)
+        mobileScrollSupport: false
+      });
+      // Centraliza a capa e a contracapa quando aparecem sozinhas
+      const wrap = document.getElementById('wrap');
+      const centralizar = () => {
+        let x = 0;
+        if (flip.getOrientation() !== 'portrait') {
+          const r = flip.getBoundsRect();
+          const meia = (r && r.pageWidth ? r.pageWidth : wrap.offsetWidth / 2) / 2;
+          const idx = flip.getCurrentPageIndex();
+          const n = flip.getPageCount();
+          if (idx === 0) x = -meia;                              // capa: sozinha à direita
+          else if (idx >= n - 1 && n % 2 === 0) x = meia;        // contracapa: sozinha à esquerda
+        }
+        wrap.style.transform = `translateX(${x}px)`;
+      };
+
+      const info = document.getElementById('info');
+      const update = () => {
+        info.textContent = `Página ${flip.getCurrentPageIndex() + 1} de ${flip.getPageCount()}`;
+        centralizar();
+      };
+      // Os eventos precisam ser registrados ANTES de carregar as páginas
+      flip.on('init', update);
+      flip.on('flip', update);
+      // Ao começar a virar (botão, teclado ou arrastando), o livro volta ao centro
+      // para a página que abre não ficar cortada fora da tela
+      flip.on('changeState', e => {
+        if (e.data !== 'read') wrap.style.transform = 'translateX(0px)';
+        else centralizar();
+      });
+      flip.on('changeOrientation', centralizar);
+      window.addEventListener('resize', () => setTimeout(centralizar, 100));
+
+      flip.loadFromHTML(document.querySelectorAll('.page'));
+
+      // Capa e contracapa viram como folha de revista (a biblioteca as deixa rígidas por padrão)
+      try {
+        flip.getPage(0).setDensity('soft');
+        flip.getPage(flip.getPageCount() - 1).setDensity('soft');
+      } catch (e) { console.warn('Não foi possível amolecer a capa:', e); }
+      setTimeout(update, 300);   // garantia: recalcula depois que o livro terminou de desenhar
+
+      document.getElementById('prev').onclick = () => flip.flipPrev();
+      document.getElementById('next').onclick = () => flip.flipNext();
+      document.addEventListener('keydown', e => {
+        if (e.key === 'ArrowLeft') flip.flipPrev();
+        if (e.key === 'ArrowRight') flip.flipNext();
+      });
+      document.getElementById('controls').hidden = false;
+    } catch (e) {
+      status.textContent = 'Erro: ' + e.message;
+    }
+  })();
+</script>
+</body>
+</html>
