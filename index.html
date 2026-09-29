@@ -3,20 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PMAFI BG Editorial</title>
+<title>PMAFI - BARRA DO GARÇA - MT</title>
 <style>
   body { margin: 0; background: #2b2b2b; color: #eee; font-family: system-ui, sans-serif;
          display: flex; flex-direction: column; align-items: center; min-height: 100vh;
          overflow-x: hidden; }
   #status { margin: 60px 16px; font-size: 18px; }
-  #wrap { width: 95vw; max-width: 1400px; margin: 20px auto 0;
+  #wrap { width: 95vw; max-width: 1400px; margin: 2vh auto 0;
           transition: transform 0.5s ease; }   /* desliza a capa/contracapa para o centro */
-  .page { overflow: hidden; }
+  .page { overflow: hidden; background: #f0f0f0; }
+  .page.carregando::after { content: "Carregando…"; position: absolute; inset: 0;
+         display: flex; align-items: center; justify-content: center;
+         color: #999; font-size: 14px; }
   .page img { width: 100%; height: 100%; display: block; object-fit: contain;
               user-select: none; pointer-events: none; }
-  .controls { display: flex; gap: 14px; align-items: center; margin: 16px; flex-wrap: wrap; justify-content: center; }
+  /* Controles proporcionais à altura da janela: não crescem mais que o livro */
+  .controls { display: flex; gap: 1.2vh; align-items: center; margin: 1.5vh 16px;
+              flex-wrap: wrap; justify-content: center;
+              font-size: clamp(12px, 2vh, 16px); }
   .controls[hidden] { display: none; }
-  button { padding: 8px 18px; border: 0; border-radius: 6px; background: #4a90e2; color: #fff; font-size: 16px; cursor: pointer; }
+  button { padding: 0.45em 1.1em; border: 0; border-radius: 6px; background: #4a90e2; color: #fff;
+           font-size: 1em; cursor: pointer; }
   button:hover { background: #357abd; }
   a { color: #9cf; }
 </style>
@@ -38,7 +45,7 @@
   (async () => {
     const status = document.getElementById('status');
     try {
-      const resp = await fetch('paginas.json', { cache: 'no-cache' });
+      const resp = await fetch('paginas.json?t=' + Date.now(), { cache: 'no-store' });
       if (!resp.ok) throw new Error('paginas.json não encontrado — rode gerar_paginas.py');
       const dados = await resp.json();
       const w = dados.width, h = dados.height;
@@ -47,8 +54,11 @@
       status.remove();
 
       // Ajusta a largura para o livro aberto caber na altura da tela (sobra espaço para os botões)
+      const controles = document.getElementById('controls');
       const ajustarLargura = () => {
-        const alturaLivre = window.innerHeight - 110;
+        // espaço dos botões medido de verdade (ou estimado, antes de aparecerem)
+        const alturaBotoes = controles.hidden ? window.innerHeight * 0.08 + 20 : controles.offsetHeight + 10;
+        const alturaLivre = window.innerHeight - alturaBotoes - window.innerHeight * 0.035;
         const larguraMax = Math.floor(alturaLivre * (2 * w) / h);
         document.getElementById('wrap').style.width = Math.min(window.innerWidth * 0.95, larguraMax, 1400) + 'px';
       };
@@ -58,16 +68,41 @@
       // Cria uma <div> com a imagem para cada página
       const book = document.getElementById('book');
       const total = dados.pages.length;
-      dados.pages.forEach((src, i) => {
+      const imgs = dados.pages.map((src, i) => {
         const div = document.createElement('div');
-        div.className = 'page';
+        div.className = 'page carregando';
         const img = document.createElement('img');
-        img.src = src;
+        img.dataset.src = src;          // a imagem só é baixada quando for necessária
         img.alt = `Página ${i + 1}`;
         img.decoding = 'async';
+        img.addEventListener('load', () => div.classList.remove('carregando'));
         div.appendChild(img);
         book.appendChild(div);
+        return img;
       });
+
+      // Carregamento por prioridade: primeiro as páginas perto da atual,
+      // depois as demais em segundo plano, poucas de cada vez
+      const carregar = i => {
+        const img = imgs[i];
+        if (img && !img.src) img.src = img.dataset.src;
+        return img;
+      };
+      const carregarPerto = idx => {
+        for (let i = idx - 2; i <= idx + 5; i++) carregar(i);
+      };
+      let proxima = 0;
+      const emSegundoPlano = () => {
+        while (proxima < total && imgs[proxima].src) proxima++;
+        if (proxima >= total) return;
+        const img = carregar(proxima);
+        const seguir = () => setTimeout(emSegundoPlano, 50);
+        if (img.complete) seguir();
+        else { img.addEventListener('load', seguir, { once: true });
+               img.addEventListener('error', seguir, { once: true }); }
+      };
+      carregarPerto(0);
+      setTimeout(() => { for (let k = 0; k < 3; k++) emSegundoPlano(); }, 800);
 
       const flip = new St.PageFlip(book, {
         width: w, height: h,
@@ -95,6 +130,7 @@
 
       const info = document.getElementById('info');
       const update = () => {
+        carregarPerto(flip.getCurrentPageIndex());
         info.textContent = `Página ${flip.getCurrentPageIndex() + 1} de ${flip.getPageCount()}`;
         centralizar();
       };
@@ -104,7 +140,10 @@
       // Ao começar a virar (botão, teclado ou arrastando), o livro volta ao centro
       // para a página que abre não ficar cortada fora da tela
       flip.on('changeState', e => {
-        if (e.data !== 'read') wrap.style.transform = 'translateX(0px)';
+        if (e.data !== 'read') {
+          wrap.style.transform = 'translateX(0px)';
+          carregarPerto(flip.getCurrentPageIndex());
+        }
         else centralizar();
       });
       flip.on('changeOrientation', centralizar);

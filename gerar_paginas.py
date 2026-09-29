@@ -21,6 +21,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 
 PDF = sys.argv[1] if len(sys.argv) > 1 else "documento.pdf"
 DPI = int(sys.argv[2]) if len(sys.argv) > 2 else 150
@@ -104,9 +105,13 @@ def main():
     os.rename(TEMP, PASTA)
     arquivos = [f"{PASTA}/{f}" for f in sorted(os.listdir(PASTA)) if f.endswith(".jpg")]
 
+    # "?v=..." muda a cada geração: obriga o navegador e o GitHub Pages
+    # a buscar as imagens novas em vez de mostrar as antigas do cache
+    versao = time.strftime("%Y%m%d%H%M%S")
     with open("paginas.json", "w", encoding="utf-8") as f:
-        json.dump({"pdf": PDF, "width": round(tamanho[0], 2), "height": round(tamanho[1], 2),
-                   "pages": arquivos}, f, indent=1)
+        json.dump({"pdf": f"{PDF}?v={versao}", "width": round(tamanho[0], 2),
+                   "height": round(tamanho[1], 2),
+                   "pages": [f"{a}?v={versao}" for a in arquivos]}, f, indent=1)
 
     mb = sum(os.path.getsize(a) for a in arquivos) / 1024 / 1024
     print(f"Pronto: {len(arquivos)} páginas em '{PASTA}/' ({mb:.1f} MB) + paginas.json")
